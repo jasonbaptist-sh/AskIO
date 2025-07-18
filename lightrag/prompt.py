@@ -8,19 +8,26 @@ PROMPTS["DEFAULT_LANGUAGE"] = "English"
 PROMPTS["DEFAULT_TUPLE_DELIMITER"] = "<|>"
 PROMPTS["DEFAULT_RECORD_DELIMITER"] = "##"
 PROMPTS["DEFAULT_COMPLETION_DELIMITER"] = "<|COMPLETE|>"
-
-PROMPTS["DEFAULT_ENTITY_TYPES"] = ["organization", "person", "geo", "event", "category"]
-
 PROMPTS["DEFAULT_USER_PROMPT"] = "n/a"
 
+PROMPTS["DEFAULT_ENTITY_TYPES"] = ["Equipment Tag", "Equipment Type", "Equipment Purpose", "Hazard", "Process", "Engineering Discipline", "Equipment Parameter"]
+
 PROMPTS["entity_extraction"] = """---Goal---
-Given a text document that is potentially relevant to this activity and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities.
+Given a text document containing information on Prelude FLNG that is potentially relevant to this activity and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities.
 Use {language} as output language.
 
 ---Steps---
 1. Identify all entities. For each identified entity, extract the following information:
 - entity_name: Name of the entity, use same language as input text. If English, capitalized the name.
 - entity_type: One of the following types: [{entity_types}]
+- Equipment Tag: Specific identifier for a piece of equipment (e.g., K-10002 is a compressor in unit 10000, 100-UCA-1510 is a anti-surge valve in unit 10000).
+- Equipment Type: The general category of equipment (e.g., Compressor, Controller, Valve, Pump, Heat Exchanger).
+- Equipment Purpose: The function or role of a piece of equipment within a process (e.g., Anti-surge control, Depletion compression, Feed gas separation).
+- Equipment design parameters (eg. maximum design temperature, minimum design temperature, maximum design pressure).
+- Hazard: Something that if released could result in harm (e.g., hydrocarbon gas, high pressure, heat, cryogenic liquid).
+- Process: A series of actions or steps taken to achieve a particular end (e.g., Surge Control, Medical Emergency Response, Management of Change).
+- Engineering Discipline: A branch of engineering knowledge or practice mentioned (e.g., Process Engineering, Mechanical Engineering, Instrumentation, Process Control).
+- Equipment Parameter: A measurable factor relating to equipment operation or condition (e.g., Discharge Flow, Suction Pressure, Surge Parameter, Range, Size, Capacity).
 - entity_description: Comprehensive description of the entity's attributes and activities
 Format each entity as ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>)
 
@@ -37,6 +44,7 @@ Format each relationship as ("relationship"{tuple_delimiter}<source_entity>{tupl
 Format the content-level key words as ("content_keywords"{tuple_delimiter}<high_level_keywords>)
 
 4. Return output in {language} as a single list of all the entities and relationships identified in steps 1 and 2. Use **{record_delimiter}** as the list delimiter.
+Crucially, the delimiters `{tuple_delimiter}`, `{record_delimiter}`, and `{completion_delimiter}` must *only* be used for structuring the output as specified and must NEVER appear inside any extracted text field (like names, types, descriptions, or keywords).
 
 5. When finished, output {completion_delimiter}
 
@@ -56,80 +64,153 @@ Output:"""
 
 PROMPTS["entity_extraction_examples"] = [
     """Example 1:
-
-Entity_types: [person, technology, mission, organization, location]
+ 
+Entity_types: [Equipment Tag, Equipment Type, Equipment Purpose, Hazard, Process, Engineering Discipline, Equipment Parameter]
 Text:
 ```
-while Alex clenched his jaw, the buzz of frustration dull against the backdrop of Taylor's authoritarian certainty. It was this competitive undercurrent that kept him alert, the sense that his and Jordan's shared commitment to discovery was an unspoken rebellion against Cruz's narrowing vision of control and order.
-
-Then Taylor did something unexpected. They paused beside Jordan and, for a moment, observed the device with something akin to reverence. "If this tech can be understood..." Taylor said, their voice quieter, "It could change the game for us. For all of us."
-
-The underlying dismissal earlier seemed to falter, replaced by a glimpse of reluctant respect for the gravity of what lay in their hands. Jordan looked up, and for a fleeting heartbeat, their eyes locked with Taylor's, a wordless clash of wills softening into an uneasy truce.
-
-It was a small transformation, barely perceptible, but one that Alex noted with an inward nod. They had all been brought here by different paths
+For the depletion compressor K-10002, dedicated anti-surge controller UCA-1510 is provided. Measurements of the discharge flow FI-1012 (Median Function FY-1012: FT-1012A/B/C), suction pressure PI-1065 (Median Function PY-1065: PT-1065A/B/C) and discharge pressure PI-1063 (Median Function PY-1063: PT-1063A/B/C) are used by the UY-1514 calculation block to compute the surge parameter, which give the distance of the K-10002 operating point from the surge reference line. At the surge reference line the surge parameter equals 10. As the K-10002 moves towards the surge control line, the anti-surge controller UCA-1510 opens the anti-surge valve UCV-1511 to move the K-10002 away from the surge reference line. Gain scheduling (UY-1516) is used to allow for both a quick opening of the anti-surge valve when getting too close to the surge reference line and stable recycle operation at the surge control line. Hand controller HC-1032 is available from the CCR to manually open the anti-surge valve UCV1511. The anti-surge controller UCA-1510 can open the anti-surge valve more, if required, through high selector UY-1513. To prevent a quick closure of the anti-surge control valve a rate of change limiter, UY-1517, is applied. This rate of change limiter only limits the closure of the valve and does not limit the speed of opening of the valve. The output signal to the anti-surge valve is inversed as the anti-surge valve is a fail-open valve.
 ```
-
+ 
 Output:
-("entity"{tuple_delimiter}"Alex"{tuple_delimiter}"person"{tuple_delimiter}"Alex is a character who experiences frustration and is observant of the dynamics among other characters."){record_delimiter}
-("entity"{tuple_delimiter}"Taylor"{tuple_delimiter}"person"{tuple_delimiter}"Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."){record_delimiter}
-("entity"{tuple_delimiter}"Jordan"{tuple_delimiter}"person"{tuple_delimiter}"Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."){record_delimiter}
-("entity"{tuple_delimiter}"Cruz"{tuple_delimiter}"person"{tuple_delimiter}"Cruz is associated with a vision of control and order, influencing the dynamics among other characters."){record_delimiter}
-("entity"{tuple_delimiter}"The Device"{tuple_delimiter}"technology"{tuple_delimiter}"The Device is central to the story, with potential game-changing implications, and is revered by Taylor."){record_delimiter}
-("relationship"{tuple_delimiter}"Alex"{tuple_delimiter}"Taylor"{tuple_delimiter}"Alex is affected by Taylor's authoritarian certainty and observes changes in Taylor's attitude towards the device."{tuple_delimiter}"power dynamics, perspective shift"{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}"Alex"{tuple_delimiter}"Jordan"{tuple_delimiter}"Alex and Jordan share a commitment to discovery, which contrasts with Cruz's vision."{tuple_delimiter}"shared goals, rebellion"{tuple_delimiter}6){record_delimiter}
-("relationship"{tuple_delimiter}"Taylor"{tuple_delimiter}"Jordan"{tuple_delimiter}"Taylor and Jordan interact directly regarding the device, leading to a moment of mutual respect and an uneasy truce."{tuple_delimiter}"conflict resolution, mutual respect"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Jordan"{tuple_delimiter}"Cruz"{tuple_delimiter}"Jordan's commitment to discovery is in rebellion against Cruz's vision of control and order."{tuple_delimiter}"ideological conflict, rebellion"{tuple_delimiter}5){record_delimiter}
-("relationship"{tuple_delimiter}"Taylor"{tuple_delimiter}"The Device"{tuple_delimiter}"Taylor shows reverence towards the device, indicating its importance and potential impact."{tuple_delimiter}"reverence, technological significance"{tuple_delimiter}9){record_delimiter}
-("content_keywords"{tuple_delimiter}"power dynamics, ideological conflict, discovery, rebellion"){completion_delimiter}
+("entity"{tuple_delimiter}"K-10002"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Depletion Compressor K-10002 is a piece of rotating equipment used in the depletion process."){record_delimiter}
+("entity"{tuple_delimiter}"Depletion Compressor"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A type of compressor used specifically during the depletion phase of a gas field."){record_delimiter}
+("entity"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Dedicated anti-surge controller for K-10002."){record_delimiter}
+("entity"{tuple_delimiter}"Anti-surge Controller"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A controller designed to prevent compressor surge."){record_delimiter}
+("entity"{tuple_delimiter}"FI-1012"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Discharge flow measurement for K-10002."){record_delimiter}
+("entity"{tuple_delimiter}"Flow Instrument"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"An instrument measuring fluid flow rate."){record_delimiter}
+("entity"{tuple_delimiter}"PI-1065"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Suction pressure measurement for K-10002."){record_delimiter}
+("entity"{tuple_delimiter}"PI-1063"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Discharge pressure measurement for K-10002."){record_delimiter}
+("entity"{tuple_delimiter}"Pressure Instrument"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"An instrument measuring fluid pressure."){record_delimiter}
+("entity"{tuple_delimiter}"UCV-1511"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Anti-surge valve for K-10002."){record_delimiter}
+("entity"{tuple_delimiter}"Anti-surge Valve"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A valve used in anti-surge control systems."){record_delimiter}
+("entity"{tuple_delimiter}"HC-1032"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Hand controller for manually operating UCV-1511."){record_delimiter}
+("entity"{tuple_delimiter}"Hand Controller"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A manual interface for controlling equipment."){record_delimiter}
+("entity"{tuple_delimiter}"Surge Control"{tuple_delimiter}"Process"{tuple_delimiter}"The process of preventing compressor surge by managing operating parameters and recycle flow."){record_delimiter}
+("entity"{tuple_delimiter}"Surge"{tuple_delimiter}"Hazard"{tuple_delimiter}"A condition in centrifugal compressors where flow reverses, potentially causing damage."){record_delimiter}
+("entity"{tuple_delimiter}"Instrumentation"{tuple_delimiter}"Engineering Discipline"{tuple_delimiter}"The engineering discipline focused on measurement and control of process variables."){record_delimiter}
+("entity"{tuple_delimiter}"Process Control"{tuple_delimiter}"Engineering Discipline"{tuple_delimiter}"The engineering discipline focused on automating and optimizing industrial processes."){record_delimiter}
+("entity"{tuple_delimiter}"Surge Parameter"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"A calculated value indicating the proximity of the compressor operating point to the surge line."){record_delimiter}
+("entity"{tuple_delimiter}"Discharge Flow"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The rate of fluid flow exiting the compressor discharge."){record_delimiter}
+("entity"{tuple_delimiter}"Suction Pressure"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The pressure of the fluid entering the compressor suction."){record_delimiter}
+("entity"{tuple_delimiter}"Discharge Pressure"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The pressure of the fluid exiting the compressor discharge."){record_delimiter}
+("relationship"{tuple_delimiter}"K-10002"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"UCA-1510 is the dedicated anti-surge controller for compressor K-10002."{tuple_delimiter}"control, protection"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"UCV-1511"{tuple_delimiter}"Anti-surge controller UCA-1510 opens anti-surge valve UCV-1511 to prevent surge."{tuple_delimiter}"control action, surge prevention"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"FI-1012"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"Discharge flow measurement FI-1012 is an input to the anti-surge controller UCA-1510 for surge parameter calculation."{tuple_delimiter}"measurement input, control calculation"{tuple_delimiter}7){record_delimiter}
+("relationship"{tuple_delimiter}"PI-1065"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"Suction pressure measurement PI-1065 is an input to the anti-surge controller UCA-1510 for surge parameter calculation."{tuple_delimiter}"measurement input, control calculation"{tuple_delimiter}7){record_delimiter}
+("relationship"{tuple_delimiter}"PI-1063"{tuple_delimiter}"UCA-1510"{tuple_delimiter}"Discharge pressure measurement PI-1063 is an input to the anti-surge controller UCA-1510 for surge parameter calculation."{tuple_delimiter}"measurement input, control calculation"{tuple_delimiter}7){record_delimiter}
+("relationship"{tuple_delimiter}"Surge Control"{tuple_delimiter}"K-10002"{tuple_delimiter}"Surge control process is implemented to protect the K-10002 depletion compressor."{tuple_delimiter}"process application, equipment protection"{tuple_delimiter}9){record_delimiter}
+("content_keywords"{tuple_delimiter}"depletion compressor, surge control, anti-surge controller, anti-surge valve, instrumentation, process parameters"){completion_delimiter}
 #############################""",
     """Example 2:
-
-Entity_types: [company, index, commodity, market_trend, economic_policy, biological]
+ 
+Entity_types: [Equipment Tag, Equipment Type, Equipment Purpose, Hazard, Process, Engineering Discipline, Equipment Parameter]
 Text:
 ```
-Stock markets faced a sharp downturn today as tech giants saw significant declines, with the Global Tech Index dropping by 3.4% in midday trading. Analysts attribute the selloff to investor concerns over rising interest rates and regulatory uncertainty.
-
-Among the hardest hit, Nexon Technologies saw its stock plummet by 7.8% after reporting lower-than-expected quarterly earnings. In contrast, Omega Energy posted a modest 2.1% gain, driven by rising oil prices.
-
-Meanwhile, commodity markets reflected a mixed sentiment. Gold futures rose by 1.5%, reaching $2,080 per ounce, as investors sought safe-haven assets. Crude oil prices continued their rally, climbing to $87.60 per barrel, supported by supply constraints and strong demand.
-
-Financial experts are closely watching the Federal Reserve's next move, as speculation grows over potential rate hikes. The upcoming policy announcement is expected to influence investor confidence and overall market stability.
+First Person on Scene • Assess scene and casualty • Make the area safe • Notify CCR (Central Control Room) by Radio or call Site Emergency Number 888 CCR • Dispatch Designated First Aiders (DFA) • Informs Medic of ongoing response; deploy in case of significant injury/illness DFA • Obtain first aid kit with AED. If in hazardous area, obtain authorization from IC/CCR to use AED • Mobilise to incident site • Assess IP • Provide Basic Life Support (BLS) / First Aid
 ```
-
+ 
 Output:
-("entity"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"index"{tuple_delimiter}"The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."){record_delimiter}
-("entity"{tuple_delimiter}"Nexon Technologies"{tuple_delimiter}"company"{tuple_delimiter}"Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."){record_delimiter}
-("entity"{tuple_delimiter}"Omega Energy"{tuple_delimiter}"company"{tuple_delimiter}"Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."){record_delimiter}
-("entity"{tuple_delimiter}"Gold Futures"{tuple_delimiter}"commodity"{tuple_delimiter}"Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."){record_delimiter}
-("entity"{tuple_delimiter}"Crude Oil"{tuple_delimiter}"commodity"{tuple_delimiter}"Crude oil prices rose to $87.60 per barrel due to supply constraints and strong demand."){record_delimiter}
-("entity"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"market_trend"{tuple_delimiter}"Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."){record_delimiter}
-("entity"{tuple_delimiter}"Federal Reserve Policy Announcement"{tuple_delimiter}"economic_policy"{tuple_delimiter}"The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."){record_delimiter}
-("relationship"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"The decline in the Global Tech Index is part of the broader market selloff driven by investor concerns."{tuple_delimiter}"market performance, investor sentiment"{tuple_delimiter}9){record_delimiter}
-("relationship"{tuple_delimiter}"Nexon Technologies"{tuple_delimiter}"Global Tech Index"{tuple_delimiter}"Nexon Technologies' stock decline contributed to the overall drop in the Global Tech Index."{tuple_delimiter}"company impact, index movement"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Gold Futures"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"Gold prices rose as investors sought safe-haven assets during the market selloff."{tuple_delimiter}"market reaction, safe-haven investment"{tuple_delimiter}10){record_delimiter}
-("relationship"{tuple_delimiter}"Federal Reserve Policy Announcement"{tuple_delimiter}"Market Selloff"{tuple_delimiter}"Speculation over Federal Reserve policy changes contributed to market volatility and investor selloff."{tuple_delimiter}"interest rate impact, financial regulation"{tuple_delimiter}7){record_delimiter}
-("content_keywords"{tuple_delimiter}"market downturn, investor sentiment, commodities, Federal Reserve, stock performance"){completion_delimiter}
+("entity"{tuple_delimiter}"CCR"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Central Control Room, the main operational control hub."){record_delimiter}
+("entity"{tuple_delimiter}"Central Control Room"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A facility area housing control systems and operators."){record_delimiter}
+("entity"{tuple_delimiter}"Radio"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"Communication device used for notifying CCR."){record_delimiter}
+("entity"{tuple_delimiter}"First Aid Kit"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A collection of supplies for giving first aid."){record_delimiter}
+("entity"{tuple_delimiter}"AED"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Automatic External Defibrillator, used in Basic Life Support."){record_delimiter}
+("entity"{tuple_delimiter}"Automatic External Defibrillator"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A portable electronic device that automatically diagnoses life-threatening cardiac arrhythmias and treats them through defibrillation."){record_delimiter}
+("entity"{tuple_delimiter}"Medical Emergency Response"{tuple_delimiter}"Process"{tuple_delimiter}"The initial steps taken in response to a medical emergency, involving scene assessment, notification, and first aid."){record_delimiter}
+("entity"{tuple_delimiter}"Injury/Illness"{tuple_delimiter}"Hazard"{tuple_delimiter}"The potential harm to personnel requiring medical attention."){record_delimiter}
+("entity"{tuple_delimiter}"Hazardous Area"{tuple_delimiter}"Hazard"{tuple_delimiter}"An area with potential dangers requiring authorization for specific actions like using an AED."){record_delimiter}
+("entity"{tuple_delimiter}"Basic Life Support"{tuple_delimiter}"Process"{tuple_delimiter}"A level of medical care used for victims of life-threatening illnesses or injuries until they can be given full medical care."){record_delimiter}
+("entity"{tuple_delimiter}"First Aid"{tuple_delimiter}"Process"{tuple_delimiter}"Immediate assistance given to any person suffering a sudden illness or injury."){record_delimiter}
+("entity"{tuple_delimiter}"Health, Safety, Environment"{tuple_delimiter}"Engineering Discipline"{tuple_delimiter}"Discipline focused on ensuring safe and environmentally sound operations, including emergency response."){record_delimiter}
+("relationship"{tuple_delimiter}"First Person on Scene"{tuple_delimiter}"CCR"{tuple_delimiter}"The First Person on Scene notifies the CCR to initiate the emergency response."{tuple_delimiter}"notification, communication"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"CCR"{tuple_delimiter}"DFA"{tuple_delimiter}"The CCR dispatches Designated First Aiders to the incident site."{tuple_delimiter}"dispatch, response coordination"{tuple_delimiter}7){record_delimiter}
+("relationship"{tuple_delimiter}"DFA"{tuple_delimiter}"AED"{tuple_delimiter}"Designated First Aiders obtain and potentially use an AED as part of providing Basic Life Support."{tuple_delimiter}"equipment use, life support"{tuple_delimiter}6){record_delimiter}
+("relationship"{tuple_delimiter}"DFA"{tuple_delimiter}"Hazardous Area"{tuple_delimiter}"Designated First Aiders require authorization to use an AED in a hazardous area."{tuple_delimiter}"safety procedure, hazard mitigation"{tuple_delimiter}5){record_delimiter}
+("content_keywords"{tuple_delimiter}"medical emergency, first aid, emergency response, CCR, DFA, AED, hazardous area, basic life support"){completion_delimiter}
 #############################""",
     """Example 3:
-
-Entity_types: [economic_policy, athlete, event, location, record, organization, equipment]
+ 
+Entity_types: [Equipment Tag, Equipment Type, Equipment Purpose, Hazard, Process, Engineering Discipline, Equipment Parameter]
 Text:
 ```
-At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint record using cutting-edge carbon-fiber spikes.
+Not In-Kind INSTRUMENTATION Change in range of control element Different tuning parameters which affect safety or equipment integrity Changes in a loop configuration Change in a measurement type of device (e.g. orifice to mass flow meter, etc.) Different units of measurement Change to SOC, alarm limit, or interlock limit, even if limits are more stringent Changes in size of device (e.g. 4" control valve to 6" control valve) Change in Alarm Set Points Change in the functionality of SIS Equipment Change ACAP Clamp Limits outside established operating limits Relocation, decommissioning or relocation of existing equipment Introduction of new control technology Change in configuration of basic control system Introduction of new hardware/ technology (including change-over and retirement). Changing the technology associated with a Significant transmitter model changes (for example analogue to smart) Changing body types Changing the control valve capacity, characteristics, or metallurgy Disconnecting instrument air from a control valve to make it inoperable A change in the operational software that can affect plant operations, including computer control schemes
+```
+ 
+Output:
+("entity"{tuple_delimiter}"Control Element"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A device that manipulates a process variable, such as a control valve."){record_delimiter}
+("entity"{tuple_delimiter}"Orifice Plate"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A device used for measuring flow rate, based on differential pressure."){record_delimiter}
+("entity"{tuple_delimiter}"Mass Flow Meter"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"An instrument that measures the mass flow rate of a fluid traveling through a tube."){record_delimiter}
+("entity"{tuple_delimiter}"Control Valve"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A valve used to control fluid flow by varying the size of the flow passage."){record_delimiter}
+("entity"{tuple_delimiter}"SIS Equipment"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"Safety Instrumented System equipment designed to prevent or mitigate hazardous events."){record_delimiter}
+("entity"{tuple_delimiter}"Transmitter"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"A device that converts a measured physical variable into a standardized signal for transmission."){record_delimiter}
+("entity"{tuple_delimiter}"Management of Change"{tuple_delimiter}"Process"{tuple_delimiter}"The process for handling modifications to equipment, procedures, or systems that are not 'like-for-like'."){record_delimiter}
+("entity"{tuple_delimiter}"Decommissioning"{tuple_delimiter}"Process"{tuple_delimiter}"The process of taking equipment or a facility out of service."){record_delimiter}
+("entity"{tuple_delimiter}"Instrumentation"{tuple_delimiter}"Engineering Discipline"{tuple_delimiter}"The discipline focused on the design, installation, and maintenance of measuring and control instruments."){record_delimiter}
+("entity"{tuple_delimiter}"Process Control"{tuple_delimiter}"Engineering Discipline"{tuple_delimiter}"The discipline focused on automating and optimizing industrial processes using control systems."){record_delimiter}
+("entity"{tuple_delimiter}"Range"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The upper and lower limits within which an instrument or control element operates."){record_delimiter}
+("entity"{tuple_delimiter}"Tuning Parameters"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"Settings that adjust the response of a control loop (e.g., PID controller gains)."){record_delimiter}
+("entity"{tuple_delimiter}"Alarm Limit"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"A threshold value that triggers an alarm when exceeded."){record_delimiter}
+("entity"{tuple_delimiter}"Interlock Limit"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"A threshold value that triggers an automated safety action (interlock)."){record_delimiter}
+("entity"{tuple_delimiter}"Size"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The physical dimensions of a device, such as valve size."){record_delimiter}
+("entity"{tuple_delimiter}"Capacity"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The maximum flow rate or throughput a device can handle."){record_delimiter}
+("entity"{tuple_delimiter}"Characteristics"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The relationship between valve position and flow rate (e.g., linear, equal percentage)."){record_delimiter}
+("entity"{tuple_delimiter}"Metallurgy"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The specific metal composition and properties of a component."){record_delimiter}
+("relationship"{tuple_delimiter}"Management of Change"{tuple_delimiter}"Instrumentation"{tuple_delimiter}"Changes to instrumentation that are not like-for-like require management through the MoC process."{tuple_delimiter}"process requirement, discipline involvement"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"Control Valve"{tuple_delimiter}"Size"{tuple_delimiter}"Changing the size of a control valve (e.g., 4\" to 6\") is a 'Not In-Kind' change requiring MoC."{tuple_delimiter}"modification type, parameter change"{tuple_delimiter}7){record_delimiter}
+("relationship"{tuple_delimiter}"SIS Equipment"{tuple_delimiter}"Functionality"{tuple_delimiter}"Any change in the functionality of Safety Instrumented System (SIS) equipment requires MoC."{tuple_delimiter}"safety system, functional change"{tuple_delimiter}9){record_delimiter}
+("content_keywords"{tuple_delimiter}"instrumentation, management of change, process control, SIS, equipment parameters, not in-kind, modification"){completion_delimiter}
+#############################""",
+    """Example 4:
+
+Entity_types: [Equipment Tag, Equipment Type, Equipment Purpose, Hazard, Process, Engineering Discipline, Equipment Parameter]
+Text:
+```
+| Tag No.         | Service location | Reason for relief | Set pressure barg | Accumulation % | Valve type | Discharge location | Remarks                                 |
+|-----------------|------------------|-------------------|-------------------|----------------|------------|--------------------|-----------------------------------------|
+| 150-RV-1001A/B  | C-15002          | (A)               | 22.0              | 10             | Pilot      | FDH                | GOVERNING. 140-LCV-1004 A/B fully open. |
+| 150-RV-1001A/B  | E-15003          | (A)               | 22.0              | 10             | Pilot      | FDH                |                                         |
+| 150-RV-1005A/B  | C-15003 E-15005  | (G)               | 14.5              | 10             | Balanced   | FDH                | GOVERNING                               |
+| 150-RV-1005A/B  | C-15003 E-15005  | (D)               | 14.5              | 21             | Balanced   | FDH                | Fire surrounding C-15003                |
+
+
+NOTES:
+(A) Control valve failure
+(D) External fire
+(G) Loss of cooling duty
+FDH = HP dry flare
 ```
 
 Output:
-("entity"{tuple_delimiter}"World Athletics Championship"{tuple_delimiter}"event"{tuple_delimiter}"The World Athletics Championship is a global sports competition featuring top athletes in track and field."){record_delimiter}
-("entity"{tuple_delimiter}"Tokyo"{tuple_delimiter}"location"{tuple_delimiter}"Tokyo is the host city of the World Athletics Championship."){record_delimiter}
-("entity"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"athlete"{tuple_delimiter}"Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."){record_delimiter}
-("entity"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"record"{tuple_delimiter}"The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."){record_delimiter}
-("entity"{tuple_delimiter}"Carbon-Fiber Spikes"{tuple_delimiter}"equipment"{tuple_delimiter}"Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."){record_delimiter}
-("entity"{tuple_delimiter}"World Athletics Federation"{tuple_delimiter}"organization"{tuple_delimiter}"The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."){record_delimiter}
-("relationship"{tuple_delimiter}"World Athletics Championship"{tuple_delimiter}"Tokyo"{tuple_delimiter}"The World Athletics Championship is being hosted in Tokyo."{tuple_delimiter}"event location, international competition"{tuple_delimiter}8){record_delimiter}
-("relationship"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"Noah Carter set a new 100m sprint record at the championship."{tuple_delimiter}"athlete achievement, record-breaking"{tuple_delimiter}10){record_delimiter}
-("relationship"{tuple_delimiter}"Noah Carter"{tuple_delimiter}"Carbon-Fiber Spikes"{tuple_delimiter}"Noah Carter used carbon-fiber spikes to enhance performance during the race."{tuple_delimiter}"athletic equipment, performance boost"{tuple_delimiter}7){record_delimiter}
-("relationship"{tuple_delimiter}"World Athletics Federation"{tuple_delimiter}"100m Sprint Record"{tuple_delimiter}"The World Athletics Federation is responsible for validating and recognizing new sprint records."{tuple_delimiter}"sports regulation, record certification"{tuple_delimiter}9){record_delimiter}
-("content_keywords"{tuple_delimiter}"athletics, sprinting, record-breaking, sports technology, competition"){completion_delimiter}
+("entity"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Relief valve 150-RV-1001A/B protecting equipment C-15002 and E-15003. Governing relief case is Control Valve Failure (A)."){record_delimiter}
+("entity"{tuple_delimiter}"C-15002"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Equipment protected by relief valve 150-RV-1001A/B."){record_delimiter}
+("entity"{tuple_delimiter}"E-15003"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Equipment protected by relief valve 150-RV-1001A/B."){record_delimiter}
+("entity"{tuple_delimiter}"Set Pressure"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The pressure at which a relief valve is set to open."){record_delimiter}
+("entity"{tuple_delimiter}"Accumulation %"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The percentage overpressure allowed during relief."){record_delimiter}
+("entity"{tuple_delimiter}"Valve Type"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The design type of the relief valve (e.g., Pilot, Balanced)."){record_delimiter}
+("entity"{tuple_delimiter}"Discharge Location"{tuple_delimiter}"Equipment Parameter"{tuple_delimiter}"The system where the relief valve discharges (e.g., FDH)."){record_delimiter}
+("entity"{tuple_delimiter}"Control Valve Failure"{tuple_delimiter}"Process"{tuple_delimiter}"Relief case (A) caused by control valve failure."){record_delimiter}
+("entity"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Relief valve 150-RV-1005A/B protecting equipment C-15003 and E-15005. Governing relief case is Loss of Cooling Duty (G)."){record_delimiter}
+("entity"{tuple_delimiter}"C-15003"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Equipment protected by relief valve 150-RV-1005A/B."){record_delimiter}
+("entity"{tuple_delimiter}"E-15005"{tuple_delimiter}"Equipment Tag"{tuple_delimiter}"Equipment protected by relief valve 150-RV-1005A/B."){record_delimiter}
+("entity"{tuple_delimiter}"Loss of Cooling Duty"{tuple_delimiter}"Process"{tuple_delimiter}"Relief case (G) caused by loss of cooling duty."){record_delimiter}
+("entity"{tuple_delimiter}"External Fire"{tuple_delimiter}"Hazard"{tuple_delimiter}"Relief case (D) caused by external fire."){record_delimiter}
+("entity"{tuple_delimiter}"HP Dry Flare"{tuple_delimiter}"Equipment Type"{tuple_delimiter}"High Pressure Dry Flare system, destination for FDH discharge."){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"C-15002"{tuple_delimiter}"Relief valve 150-RV-1001A/B protects equipment C-15002."{tuple_delimiter}"protection, safety"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"E-15003"{tuple_delimiter}"Relief valve 150-RV-1001A/B protects equipment E-15003."{tuple_delimiter}"protection, safety"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Set Pressure"{tuple_delimiter}"Set Pressure for 150-RV-1001A/B is 22.0 barg."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Accumulation %"{tuple_delimiter}"Accumulation % for 150-RV-1001A/B is 10%."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Valve Type"{tuple_delimiter}"Valve Type for 150-RV-1001A/B is Pilot."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Discharge Location"{tuple_delimiter}"Discharge Location for 150-RV-1001A/B is FDH (HP Dry Flare)."{tuple_delimiter}"parameter value, destination"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1001A/B"{tuple_delimiter}"Control Valve Failure"{tuple_delimiter}"Control Valve Failure (A) is the GOVERNING relief case for 150-RV-1001A/B."{tuple_delimiter}"governing case, relief scenario, cause"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"C-15003"{tuple_delimiter}"Relief valve 150-RV-1005A/B protects equipment C-15003."{tuple_delimiter}"protection, safety"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"E-15005"{tuple_delimiter}"Relief valve 150-RV-1005A/B protects equipment E-15005."{tuple_delimiter}"protection, safety"{tuple_delimiter}8){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Set Pressure"{tuple_delimiter}"Set Pressure for 150-RV-1005A/B is 14.5 barg."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Accumulation %"{tuple_delimiter}"Accumulation % for 150-RV-1005A/B is 10% (governing case) or 21% (fire case)."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Valve Type"{tuple_delimiter}"Valve Type for 150-RV-1005A/B is Balanced."{tuple_delimiter}"parameter value, specification"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Discharge Location"{tuple_delimiter}"Discharge Location for 150-RV-1005A/B is FDH (HP Dry Flare)."{tuple_delimiter}"parameter value, destination"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"Loss of Cooling Duty"{tuple_delimiter}"Loss of Cooling Duty (G) is the GOVERNING relief case for 150-RV-1005A/B."{tuple_delimiter}"governing case, relief scenario, cause"{tuple_delimiter}9){record_delimiter}
+("relationship"{tuple_delimiter}"150-RV-1005A/B"{tuple_delimiter}"External Fire"{tuple_delimiter}"External Fire (D) is a non-governing relief case for 150-RV-1005A/B."{tuple_delimiter}"relief scenario, cause"{tuple_delimiter}7){record_delimiter}
+("content_keywords"{tuple_delimiter}"relief valve, parameters, set pressure, accumulation, valve type, discharge location, relief case, governing case, control valve failure, loss of cooling duty, external fire, equipment protection"){completion_delimiter}
 #############################""",
 ]
 
@@ -173,7 +254,7 @@ Format each relationship as ("relationship"{tuple_delimiter}<source_entity>{tupl
 3. Identify high-level key words that summarize the main concepts, themes, or topics of the entire text. These should capture the overarching ideas present in the document.
 Format the content-level key words as ("content_keywords"{tuple_delimiter}<high_level_keywords>)
 
-4. Return output in {language} as a single list of all the entities and relationships identified in steps 1 and 2. Use **{record_delimiter}** as the list delimiter.
+4. Return output in {language} as a single list of all the entities and relationships identified in. Use **{record_delimiter}** as the list delimiter.
 
 5. When finished, output {completion_delimiter}
 
@@ -315,7 +396,7 @@ When handling content with timestamps:
 {history}
 
 ---Document Chunks(DC)---
-{content_data}
+{context_data}
 
 ---Response Rules---
 
