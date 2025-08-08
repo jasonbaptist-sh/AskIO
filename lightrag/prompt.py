@@ -28,7 +28,7 @@ Use {language} as output language.
 - Process: A series of actions or steps taken to achieve a particular end (e.g., Surge Control, Medical Emergency Response, Management of Change).
 - Engineering Discipline: A branch of engineering knowledge or practice mentioned (e.g., Process Engineering, Mechanical Engineering, Instrumentation, Process Control).
 - Equipment Parameter: A measurable factor relating to equipment operation or condition (e.g., Discharge Flow, Suction Pressure, Surge Parameter, Range, Size, Capacity).
-- entity_description: Comprehensive description of the entity's attributes and activities
+- entity_description: Provide a comprehensive description of the entity's attributes and activities *based solely on the information present in the input text*. **Do not infer or hallucinate information not explicitly stated.** If the text provides insufficient information to create a comprehensive description, state "Description not available in text."
 Format each entity as ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>)
 
 2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are *clearly related* to each other.
@@ -254,7 +254,7 @@ Format each relationship as ("relationship"{tuple_delimiter}<source_entity>{tupl
 3. Identify high-level key words that summarize the main concepts, themes, or topics of the entire text. These should capture the overarching ideas present in the document.
 Format the content-level key words as ("content_keywords"{tuple_delimiter}<high_level_keywords>)
 
-4. Return output in {language} as a single list of all the entities and relationships identified in. Use **{record_delimiter}** as the list delimiter.
+4. Return output in {language} as a single list of all the entities and relationships identified in steps 1 and 2. Use **{record_delimiter}** as the list delimiter.
 
 5. When finished, output {completion_delimiter}
 
@@ -399,7 +399,7 @@ When handling content with timestamps:
 {history}
 
 ---Document Chunks(DC)---
-{context_data}
+{content_data}
 
 ---Response Rules---
 
