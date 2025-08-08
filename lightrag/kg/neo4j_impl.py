@@ -77,7 +77,7 @@ class Neo4JStorage(BaseGraphStorage):
         MAX_CONNECTION_POOL_SIZE = int(
             os.environ.get(
                 "NEO4J_MAX_CONNECTION_POOL_SIZE",
-                config.get("neo4j", "connection_pool_size", fallback=50),
+                config.get("neo4j", "connection_pool_size", fallback=100),
             )
         )
         CONNECTION_TIMEOUT = float(
@@ -98,6 +98,22 @@ class Neo4JStorage(BaseGraphStorage):
                 config.get("neo4j", "max_transaction_retry_time", fallback=30.0),
             ),
         )
+        MAX_CONNECTION_LIFETIME = float(
+            os.environ.get(
+                "NEO4J_MAX_CONNECTION_LIFETIME",
+                config.get("neo4j", "max_connection_lifetime", fallback=300.0),
+            ),
+        )
+        LIVENESS_CHECK_TIMEOUT = float(
+            os.environ.get(
+                "NEO4J_LIVENESS_CHECK_TIMEOUT",
+                config.get("neo4j", "liveness_check_timeout", fallback=30.0),
+            ),
+        )
+        KEEP_ALIVE = os.environ.get(
+            "NEO4J_KEEP_ALIVE",
+            config.get("neo4j", "keep_alive", fallback="true"),
+        ).lower() in ("true", "1", "yes", "on")
         DATABASE = os.environ.get(
             "NEO4J_DATABASE", re.sub(r"[^a-zA-Z0-9-]", "-", self.namespace)
         )
@@ -109,6 +125,9 @@ class Neo4JStorage(BaseGraphStorage):
             connection_timeout=CONNECTION_TIMEOUT,
             connection_acquisition_timeout=CONNECTION_ACQUISITION_TIMEOUT,
             max_transaction_retry_time=MAX_TRANSACTION_RETRY_TIME,
+            max_connection_lifetime=MAX_CONNECTION_LIFETIME,
+            liveness_check_timeout=LIVENESS_CHECK_TIMEOUT,
+            keep_alive=KEEP_ALIVE,
         )
 
         # Try to connect to the database and create it if it doesn't exist
@@ -801,6 +820,9 @@ class Neo4JStorage(BaseGraphStorage):
                 neo4jExceptions.TransientError,
                 neo4jExceptions.WriteServiceUnavailable,
                 neo4jExceptions.ClientError,
+                neo4jExceptions.SessionExpired,
+                ConnectionResetError,
+                OSError,
             )
         ),
     )
@@ -846,6 +868,9 @@ class Neo4JStorage(BaseGraphStorage):
                 neo4jExceptions.TransientError,
                 neo4jExceptions.WriteServiceUnavailable,
                 neo4jExceptions.ClientError,
+                neo4jExceptions.SessionExpired,
+                ConnectionResetError,
+                OSError,
             )
         ),
     )
@@ -1313,6 +1338,9 @@ class Neo4JStorage(BaseGraphStorage):
                 neo4jExceptions.TransientError,
                 neo4jExceptions.WriteServiceUnavailable,
                 neo4jExceptions.ClientError,
+                neo4jExceptions.SessionExpired,
+                ConnectionResetError,
+                OSError,
             )
         ),
     )
@@ -1349,6 +1377,9 @@ class Neo4JStorage(BaseGraphStorage):
                 neo4jExceptions.TransientError,
                 neo4jExceptions.WriteServiceUnavailable,
                 neo4jExceptions.ClientError,
+                neo4jExceptions.SessionExpired,
+                ConnectionResetError,
+                OSError,
             )
         ),
     )
@@ -1370,6 +1401,9 @@ class Neo4JStorage(BaseGraphStorage):
                 neo4jExceptions.TransientError,
                 neo4jExceptions.WriteServiceUnavailable,
                 neo4jExceptions.ClientError,
+                neo4jExceptions.SessionExpired,
+                ConnectionResetError,
+                OSError,
             )
         ),
     )
@@ -1399,6 +1433,55 @@ class Neo4JStorage(BaseGraphStorage):
             except Exception as e:
                 logger.error(f"Error during edge deletion: {str(e)}")
                 raise
+
+    async def get_all_nodes(self) -> list[dict]:
+        """Get all nodes in the graph.
+
+        Returns:
+            A list of all nodes, where each node is a dictionary of its properties
+        """
+        workspace_label = self._get_workspace_label()
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            query = f"""
+            MATCH (n:`{workspace_label}`)
+            RETURN n
+            """
+            result = await session.run(query)
+            nodes = []
+            async for record in result:
+                node = record["n"]
+                node_dict = dict(node)
+                # Add node id (entity_id) to the dictionary for easier access
+                node_dict["id"] = node_dict.get("entity_id")
+                nodes.append(node_dict)
+            await result.consume()
+            return nodes
+
+    async def get_all_edges(self) -> list[dict]:
+        """Get all edges in the graph.
+
+        Returns:
+            A list of all edges, where each edge is a dictionary of its properties
+        """
+        workspace_label = self._get_workspace_label()
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            query = f"""
+            MATCH (a:`{workspace_label}`)-[r]-(b:`{workspace_label}`)
+            RETURN DISTINCT a.entity_id AS source, b.entity_id AS target, properties(r) AS properties
+            """
+            result = await session.run(query)
+            edges = []
+            async for record in result:
+                edge_properties = record["properties"]
+                edge_properties["source"] = record["source"]
+                edge_properties["target"] = record["target"]
+                edges.append(edge_properties)
+            await result.consume()
+            return edges
 
     async def drop(self) -> dict[str, str]:
         """Drop all data from current workspace storage and clean up resources

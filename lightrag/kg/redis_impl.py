@@ -11,7 +11,7 @@ if not pm.is_installed("redis"):
 
 # aioredis is a depricated library, replaced with redis
 from redis.asyncio import Redis, ConnectionPool  # type: ignore
-from redis.exceptions import RedisError, ConnectionError  # type: ignore
+from redis.exceptions import RedisError, ConnectionError, TimeoutError  # type: ignore
 from lightrag.utils import logger
 
 from lightrag.base import (
@@ -22,14 +22,35 @@ from lightrag.base import (
 )
 import json
 
+# Import tenacity for retry logic
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 config = configparser.ConfigParser()
 config.read("config.ini", "utf-8")
 
-# Constants for Redis connection pool
-MAX_CONNECTIONS = 100
-SOCKET_TIMEOUT = 5.0
-SOCKET_CONNECT_TIMEOUT = 3.0
+# Constants for Redis connection pool with environment variable support
+MAX_CONNECTIONS = int(os.getenv("REDIS_MAX_CONNECTIONS", "200"))
+SOCKET_TIMEOUT = float(os.getenv("REDIS_SOCKET_TIMEOUT", "30.0"))
+SOCKET_CONNECT_TIMEOUT = float(os.getenv("REDIS_CONNECT_TIMEOUT", "10.0"))
+RETRY_ATTEMPTS = int(os.getenv("REDIS_RETRY_ATTEMPTS", "3"))
+
+# Tenacity retry decorator for Redis operations
+redis_retry = retry(
+    stop=stop_after_attempt(RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=(
+        retry_if_exception_type(ConnectionError)
+        | retry_if_exception_type(TimeoutError)
+        | retry_if_exception_type(RedisError)
+    ),
+    before_sleep=before_sleep_log(logger, "WARNING"),
+)
 
 
 class RedisConnectionManager:
@@ -220,6 +241,7 @@ class RedisKVStorage(BaseKVStorage):
         """Ensure Redis resources are cleaned up when exiting context."""
         await self.close()
 
+    @redis_retry
     async def get_by_id(self, id: str) -> dict[str, Any] | None:
         async with self._get_redis_connection() as redis:
             try:
@@ -235,6 +257,7 @@ class RedisKVStorage(BaseKVStorage):
                 logger.error(f"JSON decode error for id {id}: {e}")
                 return None
 
+    @redis_retry
     async def get_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
         async with self._get_redis_connection() as redis:
             try:
@@ -311,6 +334,7 @@ class RedisKVStorage(BaseKVStorage):
             existing_ids = {keys_list[i] for i, exists in enumerate(results) if exists}
             return set(keys) - existing_ids
 
+    @redis_retry
     async def upsert(self, data: dict[str, dict[str, Any]]) -> None:
         if not data:
             return
@@ -372,66 +396,6 @@ class RedisKVStorage(BaseKVStorage):
             logger.info(
                 f"Deleted {deleted_count} of {len(ids)} entries from {self.namespace}"
             )
-
-    async def drop_cache_by_modes(self, modes: list[str] | None = None) -> bool:
-        """Delete specific records from storage by cache mode
-
-        Importance notes for Redis storage:
-        1. This will immediately delete the specified cache modes from Redis
-
-        Args:
-            modes (list[str]): List of cache modes to be dropped from storage
-
-        Returns:
-             True: if the cache drop successfully
-             False: if the cache drop failed
-        """
-        if not modes:
-            return False
-
-        try:
-            async with self._get_redis_connection() as redis:
-                keys_to_delete = []
-
-                # Find matching keys for each mode using SCAN
-                for mode in modes:
-                    # Use correct pattern to match flattened cache key format {namespace}:{mode}:{cache_type}:{hash}
-                    pattern = f"{self.namespace}:{mode}:*"
-                    cursor = 0
-                    mode_keys = []
-
-                    while True:
-                        cursor, keys = await redis.scan(
-                            cursor, match=pattern, count=1000
-                        )
-                        if keys:
-                            mode_keys.extend(keys)
-
-                        if cursor == 0:
-                            break
-
-                    keys_to_delete.extend(mode_keys)
-                    logger.info(
-                        f"Found {len(mode_keys)} keys for mode '{mode}' with pattern '{pattern}'"
-                    )
-
-                if keys_to_delete:
-                    # Batch delete
-                    pipe = redis.pipeline()
-                    for key in keys_to_delete:
-                        pipe.delete(key)
-                    results = await pipe.execute()
-                    deleted_count = sum(results)
-                    logger.info(
-                        f"Dropped {deleted_count} cache entries for modes: {modes}"
-                    )
-                else:
-                    logger.warning(f"No cache entries found for modes: {modes}")
-
-            return True
-        except Exception as e:
-            logger.error(f"Error dropping cache by modes in Redis: {e}")
-            return False
 
     async def drop(self) -> dict[str, str]:
         """Drop the storage by removing all keys under the current namespace.
@@ -762,15 +726,16 @@ class RedisDocStatusStorage(DocStatusStorage):
 
                                         # Make a copy of the data to avoid modifying the original
                                         data = doc_data.copy()
-                                        # If content is missing, use content_summary as content
-                                        if (
-                                            "content" not in data
-                                            and "content_summary" in data
-                                        ):
-                                            data["content"] = data["content_summary"]
+                                        # Remove deprecated content field if it exists
+                                        data.pop("content", None)
                                         # If file_path is not in data, use document id as file path
                                         if "file_path" not in data:
                                             data["file_path"] = "no-file-path"
+                                        # Ensure new fields exist with default values
+                                        if "metadata" not in data:
+                                            data["metadata"] = {}
+                                        if "error_msg" not in data:
+                                            data["error_msg"] = None
 
                                         result[doc_id] = DocProcessingStatus(**data)
                                 except (json.JSONDecodeError, KeyError) as e:
@@ -786,10 +751,67 @@ class RedisDocStatusStorage(DocStatusStorage):
 
         return result
 
+    async def get_docs_by_track_id(
+        self, track_id: str
+    ) -> dict[str, DocProcessingStatus]:
+        """Get all documents with a specific track_id"""
+        result = {}
+        async with self._get_redis_connection() as redis:
+            try:
+                # Use SCAN to iterate through all keys in the namespace
+                cursor = 0
+                while True:
+                    cursor, keys = await redis.scan(
+                        cursor, match=f"{self.namespace}:*", count=1000
+                    )
+                    if keys:
+                        # Get all values in batch
+                        pipe = redis.pipeline()
+                        for key in keys:
+                            pipe.get(key)
+                        values = await pipe.execute()
+
+                        # Filter by track_id and create DocProcessingStatus objects
+                        for key, value in zip(keys, values):
+                            if value:
+                                try:
+                                    doc_data = json.loads(value)
+                                    if doc_data.get("track_id") == track_id:
+                                        # Extract document ID from key
+                                        doc_id = key.split(":", 1)[1]
+
+                                        # Make a copy of the data to avoid modifying the original
+                                        data = doc_data.copy()
+                                        # Remove deprecated content field if it exists
+                                        data.pop("content", None)
+                                        # If file_path is not in data, use document id as file path
+                                        if "file_path" not in data:
+                                            data["file_path"] = "no-file-path"
+                                        # Ensure new fields exist with default values
+                                        if "metadata" not in data:
+                                            data["metadata"] = {}
+                                        if "error_msg" not in data:
+                                            data["error_msg"] = None
+
+                                        result[doc_id] = DocProcessingStatus(**data)
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.error(
+                                        f"Error processing document {key}: {e}"
+                                    )
+                                    continue
+
+                    if cursor == 0:
+                        break
+            except Exception as e:
+                logger.error(f"Error getting docs by track_id: {e}")
+
+        return result
+
     async def index_done_callback(self) -> None:
         """Redis handles persistence automatically"""
         pass
 
+    @redis_retry
     async def upsert(self, data: dict[str, dict[str, Any]]) -> None:
         """Insert or update document status data"""
         if not data:
@@ -811,6 +833,7 @@ class RedisDocStatusStorage(DocStatusStorage):
                 logger.error(f"JSON decode error during upsert: {e}")
                 raise
 
+    @redis_retry
     async def get_by_id(self, id: str) -> Union[dict[str, Any], None]:
         async with self._get_redis_connection() as redis:
             try:
@@ -835,6 +858,138 @@ class RedisDocStatusStorage(DocStatusStorage):
             logger.info(
                 f"Deleted {deleted_count} of {len(doc_ids)} doc status entries from {self.namespace}"
             )
+
+    async def get_docs_paginated(
+        self,
+        status_filter: DocStatus | None = None,
+        page: int = 1,
+        page_size: int = 50,
+        sort_field: str = "updated_at",
+        sort_direction: str = "desc",
+    ) -> tuple[list[tuple[str, DocProcessingStatus]], int]:
+        """Get documents with pagination support
+
+        Args:
+            status_filter: Filter by document status, None for all statuses
+            page: Page number (1-based)
+            page_size: Number of documents per page (10-200)
+            sort_field: Field to sort by ('created_at', 'updated_at', 'id')
+            sort_direction: Sort direction ('asc' or 'desc')
+
+        Returns:
+            Tuple of (list of (doc_id, DocProcessingStatus) tuples, total_count)
+        """
+        # Validate parameters
+        if page < 1:
+            page = 1
+        if page_size < 10:
+            page_size = 10
+        elif page_size > 200:
+            page_size = 200
+
+        if sort_field not in ["created_at", "updated_at", "id", "file_path"]:
+            sort_field = "updated_at"
+
+        if sort_direction.lower() not in ["asc", "desc"]:
+            sort_direction = "desc"
+
+        # For Redis, we need to load all data and sort/filter in memory
+        all_docs = []
+        total_count = 0
+
+        async with self._get_redis_connection() as redis:
+            try:
+                # Use SCAN to iterate through all keys in the namespace
+                cursor = 0
+                while True:
+                    cursor, keys = await redis.scan(
+                        cursor, match=f"{self.namespace}:*", count=1000
+                    )
+                    if keys:
+                        # Get all values in batch
+                        pipe = redis.pipeline()
+                        for key in keys:
+                            pipe.get(key)
+                        values = await pipe.execute()
+
+                        # Process documents
+                        for key, value in zip(keys, values):
+                            if value:
+                                try:
+                                    doc_data = json.loads(value)
+
+                                    # Apply status filter
+                                    if (
+                                        status_filter is not None
+                                        and doc_data.get("status")
+                                        != status_filter.value
+                                    ):
+                                        continue
+
+                                    # Extract document ID from key
+                                    doc_id = key.split(":", 1)[1]
+
+                                    # Prepare document data
+                                    data = doc_data.copy()
+                                    data.pop("content", None)
+                                    if "file_path" not in data:
+                                        data["file_path"] = "no-file-path"
+                                    if "metadata" not in data:
+                                        data["metadata"] = {}
+                                    if "error_msg" not in data:
+                                        data["error_msg"] = None
+
+                                    # Calculate sort key for sorting (but don't add to data)
+                                    if sort_field == "id":
+                                        sort_key = doc_id
+                                    else:
+                                        sort_key = data.get(sort_field, "")
+
+                                    doc_status = DocProcessingStatus(**data)
+                                    all_docs.append((doc_id, doc_status, sort_key))
+
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.error(
+                                        f"Error processing document {key}: {e}"
+                                    )
+                                    continue
+
+                    if cursor == 0:
+                        break
+
+            except Exception as e:
+                logger.error(f"Error getting paginated docs: {e}")
+                return [], 0
+
+        # Sort documents using the separate sort key
+        reverse_sort = sort_direction.lower() == "desc"
+        all_docs.sort(key=lambda x: x[2], reverse=reverse_sort)
+
+        # Remove sort key from tuples and keep only (doc_id, doc_status)
+        all_docs = [(doc_id, doc_status) for doc_id, doc_status, _ in all_docs]
+
+        total_count = len(all_docs)
+
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_docs = all_docs[start_idx:end_idx]
+
+        return paginated_docs, total_count
+
+    async def get_all_status_counts(self) -> dict[str, int]:
+        """Get counts of documents in each status for all documents
+
+        Returns:
+            Dictionary mapping status names to counts, including 'all' field
+        """
+        counts = await self.get_status_counts()
+
+        # Add 'all' field with total count
+        total_count = sum(counts.values())
+        counts["all"] = total_count
+
+        return counts
 
     async def drop(self) -> dict[str, str]:
         """Drop all document status data from storage and clean up resources"""

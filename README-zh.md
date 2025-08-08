@@ -265,14 +265,13 @@ if __name__ == "__main__":
 | **embedding_func_max_async** | `int` | 最大并发异步嵌入进程数 | `16` |
 | **llm_model_func** | `callable` | LLM生成的函数 | `gpt_4o_mini_complete` |
 | **llm_model_name** | `str` | 用于生成的LLM模型名称 | `meta-llama/Llama-3.2-1B-Instruct` |
-| **llm_model_max_token_size** | `int` | 生成实体关系摘要时送给LLM的最大令牌数 | `32000`（默认值由环境变量MAX_TOKENS更改） |
+| **summary_max_tokens** | `int` | 生成实体关系摘要时送给LLM的最大令牌数 | `32000`（默认值由环境变量MAX_TOKENS更改） |
 | **llm_model_max_async** | `int` | 最大并发异步LLM进程数 | `4`（默认值由环境变量MAX_ASYNC更改） |
 | **llm_model_kwargs** | `dict` | LLM生成的附加参数 | |
 | **vector_db_storage_cls_kwargs** | `dict` | 向量数据库的附加参数，如设置节点和关系检索的阈值 | cosine_better_than_threshold: 0.2（默认值由环境变量COSINE_THRESHOLD更改） |
 | **enable_llm_cache** | `bool` | 如果为`TRUE`，将LLM结果存储在缓存中；重复的提示返回缓存的响应 | `TRUE` |
 | **enable_llm_cache_for_entity_extract** | `bool` | 如果为`TRUE`，将实体提取的LLM结果存储在缓存中；适合初学者调试应用程序 | `TRUE` |
 | **addon_params** | `dict` | 附加参数，例如`{"example_number": 1, "language": "Simplified Chinese", "entity_types": ["organization", "person", "geo", "event"]}`：设置示例限制、输出语言和文档处理的批量大小 | `example_number: 所有示例, language: English` |
-| **convert_response_to_json_func** | `callable` | 未使用 | `convert_response_to_json` |
 | **embedding_cache_config** | `dict` | 问答缓存的配置。包含三个参数：`enabled`：布尔值，启用/禁用缓存查找功能。启用时，系统将在生成新答案之前检查缓存的响应。`similarity_threshold`：浮点值（0-1），相似度阈值。当新问题与缓存问题的相似度超过此阈值时，将直接返回缓存的答案而不调用LLM。`use_llm_check`：布尔值，启用/禁用LLM相似度验证。启用时，在返回缓存答案之前，将使用LLM作为二次检查来验证问题之间的相似度。 | 默认：`{"enabled": False, "similarity_threshold": 0.95, "use_llm_check": False}` |
 
 </details>
@@ -320,7 +319,7 @@ class QueryParam:
     max_relation_tokens: int = int(os.getenv("MAX_RELATION_TOKENS", "10000"))
     """Maximum number of tokens allocated for relationship context in unified token control system."""
 
-    max_total_tokens: int = int(os.getenv("MAX_TOTAL_TOKENS", "32000"))
+    max_total_tokens: int = int(os.getenv("MAX_TOTAL_TOKENS", "30000"))
     """Maximum total tokens budget for the entire query context (entities + relations + chunks + system prompt)."""
 
     hl_keywords: list[str] = field(default_factory=list)
@@ -334,7 +333,8 @@ class QueryParam:
     Format: [{"role": "user/assistant", "content": "message"}].
     """
 
-    history_turns: int = 3
+    # Deprated: history message have negtive effect on query performance
+    history_turns: int = 0
     """Number of complete conversation turns (user-assistant pairs) to consider in the response context."""
 
     ids: list[str] | None = None
@@ -396,7 +396,6 @@ async def initialize_rag():
         llm_model_func=llm_model_func,
         embedding_func=EmbeddingFunc(
             embedding_dim=4096,
-            max_token_size=8192,
             func=embedding_func
         )
     )
@@ -425,7 +424,6 @@ rag = LightRAG(
     # 使用Hugging Face嵌入函数
     embedding_func=EmbeddingFunc(
         embedding_dim=384,
-        max_token_size=5000,
         func=lambda texts: hf_embed(
             texts,
             tokenizer=AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2"),
@@ -452,7 +450,6 @@ rag = LightRAG(
     # 使用Ollama嵌入函数
     embedding_func=EmbeddingFunc(
         embedding_dim=768,
-        max_token_size=8192,
         func=lambda texts: ollama_embed(
             texts,
             embed_model="nomic-embed-text"
@@ -504,7 +501,6 @@ rag = LightRAG(
     # 使用Ollama嵌入函数
     embedding_func=EmbeddingFunc(
         embedding_dim=768,
-        max_token_size=8192,
         func=lambda texts: ollama_embed(
             texts,
             embed_model="nomic-embed-text"
@@ -547,7 +543,6 @@ async def initialize_rag():
         llm_model_func=llama_index_complete_if_cache,  # LlamaIndex兼容的完成函数
         embedding_func=EmbeddingFunc(    # LlamaIndex兼容的嵌入函数
             embedding_dim=1536,
-            max_token_size=8192,
             func=lambda texts: llama_index_embed(texts, embed_model=embed_model)
         ),
     )
@@ -690,7 +685,7 @@ rag.insert(["文本1", "文本2",...], ids=["文本1的ID", "文本2的ID"])
 </details>
 
 <details>
-  <summary><b>使用管道插入</b></summary>
+  <summary><b>使用流水线插入</b></summary>
 
 `apipeline_enqueue_documents`和`apipeline_process_enqueue_documents`函数允许您对文档进行增量插入到图中。
 
@@ -742,7 +737,54 @@ rag.insert(documents, file_paths=file_paths)
 
 ### 存储
 
-LightRAG使用到4种类型的存储，每一种存储都有多种实现方案。在初始化LightRAG的时候可以通过参数设定这四类存储的实现方案。详情请参看前面的LightRAG初始化参数。
+LightRAG 使用 4 种类型的存储用于不同目的：
+
+* KV_STORAGE：llm 响应缓存、文本块、文档信息
+* VECTOR_STORAGE：实体向量、关系向量、块向量
+* GRAPH_STORAGE：实体关系图
+* DOC_STATUS_STORAGE：文档索引状态
+
+每种存储类型都有几种实现：
+
+* KV_STORAGE 支持的实现名称
+
+```
+JsonKVStorage    JsonFile(默认)
+PGKVStorage      Postgres
+RedisKVStorage   Redis
+MongoKVStorage   MogonDB
+```
+
+* GRAPH_STORAGE 支持的实现名称
+
+```
+NetworkXStorage      NetworkX(默认)
+Neo4JStorage         Neo4J
+PGGraphStorage       PostgreSQL with AGE plugin
+```
+
+> 在测试中Neo4j图形数据库相比PostgreSQL AGE有更好的性能表现。
+
+* VECTOR_STORAGE 支持的实现名称
+
+```
+NanoVectorDBStorage         NanoVector(默认)
+PGVectorStorage             Postgres
+MilvusVectorDBStorge        Milvus
+FaissVectorDBStorage        Faiss
+QdrantVectorDBStorage       Qdrant
+MongoVectorDBStorage        MongoDB
+```
+
+* DOC_STATUS_STORAGE 支持的实现名称
+
+```
+JsonDocStatusStorage        JsonFile(默认)
+PGDocStatusStorage          Postgres
+MongoDocStatusStorage       MongoDB
+```
+
+每一种存储类型的链接配置范例可以在 `env.example` 文件中找到。链接字符串中的数据库实例是需要你预先在数据库服务器上创建好的，LightRAG 仅负责在数据库实例中创建数据表，不负责创建数据库实例。如果使用 Redis 作为存储，记得给 Redis 配置自动持久化数据规则，否则 Redis 服务重启后数据会丢失。如果使用PostgreSQL数据库，推荐使用16.6版本或以上。
 
 <details>
 <summary> <b>使用Neo4J进行存储</b> </summary>
@@ -786,7 +828,6 @@ async def initialize_rag():
 <summary> <b>使用Faiss进行存储</b> </summary>
 在使用Faiss向量数据库之前必须手工安装`faiss-cpu`或`faiss-gpu`。
 
-
 - 安装所需依赖：
 
 ```
@@ -809,7 +850,6 @@ rag = LightRAG(
     llm_model_func=llm_model_func,
     embedding_func=EmbeddingFunc(
         embedding_dim=384,
-        max_token_size=8192,
         func=embedding_func,
     ),
     vector_storage="FaissVectorDBStorage",
@@ -824,51 +864,13 @@ rag = LightRAG(
 <details>
 <summary> <b>使用PostgreSQL进行存储</b> </summary>
 
-对于生产级场景，您很可能想要利用企业级解决方案。PostgreSQL可以为您提供一站式解决方案，作为KV存储、向量数据库（pgvector）和图数据库（apache AGE）。
+对于生产级场景，您很可能想要利用企业级解决方案。PostgreSQL可以为您提供一站式解决方案，作为KV存储、向量数据库（pgvector）和图数据库（apache AGE）。支持 PostgreSQL 版本为16.6或以上。
 
 * PostgreSQL很轻量，整个二进制发行版包括所有必要的插件可以压缩到40MB：参考[Windows发布版](https://github.com/ShanGor/apache-age-windows/releases/tag/PG17%2Fv1.5.0-rc0)，它在Linux/Mac上也很容易安装。
 * 如果您是初学者并想避免麻烦，推荐使用docker，请从这个镜像开始（请务必阅读概述）：https://hub.docker.com/r/shangor/postgres-for-rag
 * 如何开始？参考：[examples/lightrag_zhipu_postgres_demo.py](https://github.com/HKUDS/LightRAG/blob/main/examples/lightrag_zhipu_postgres_demo.py)
-* 为AGE创建索引示例：（如有必要，将下面的`dickens`改为您的图名）
-  ```sql
-  load 'age';
-  SET search_path = ag_catalog, "$user", public;
-  CREATE INDEX CONCURRENTLY entity_p_idx ON dickens."Entity" (id);
-  CREATE INDEX CONCURRENTLY vertex_p_idx ON dickens."_ag_label_vertex" (id);
-  CREATE INDEX CONCURRENTLY directed_p_idx ON dickens."DIRECTED" (id);
-  CREATE INDEX CONCURRENTLY directed_eid_idx ON dickens."DIRECTED" (end_id);
-  CREATE INDEX CONCURRENTLY directed_sid_idx ON dickens."DIRECTED" (start_id);
-  CREATE INDEX CONCURRENTLY directed_seid_idx ON dickens."DIRECTED" (start_id,end_id);
-  CREATE INDEX CONCURRENTLY edge_p_idx ON dickens."_ag_label_edge" (id);
-  CREATE INDEX CONCURRENTLY edge_sid_idx ON dickens."_ag_label_edge" (start_id);
-  CREATE INDEX CONCURRENTLY edge_eid_idx ON dickens."_ag_label_edge" (end_id);
-  CREATE INDEX CONCURRENTLY edge_seid_idx ON dickens."_ag_label_edge" (start_id,end_id);
-  create INDEX CONCURRENTLY vertex_idx_node_id ON dickens."_ag_label_vertex" (ag_catalog.agtype_access_operator(properties, '"node_id"'::agtype));
-  create INDEX CONCURRENTLY entity_idx_node_id ON dickens."Entity" (ag_catalog.agtype_access_operator(properties, '"node_id"'::agtype));
-  CREATE INDEX CONCURRENTLY entity_node_id_gin_idx ON dickens."Entity" using gin(properties);
-  ALTER TABLE dickens."DIRECTED" CLUSTER ON directed_sid_idx;
 
-  -- 如有必要可以删除
-  drop INDEX entity_p_idx;
-  drop INDEX vertex_p_idx;
-  drop INDEX directed_p_idx;
-  drop INDEX directed_eid_idx;
-  drop INDEX directed_sid_idx;
-  drop INDEX directed_seid_idx;
-  drop INDEX edge_p_idx;
-  drop INDEX edge_sid_idx;
-  drop INDEX edge_eid_idx;
-  drop INDEX edge_seid_idx;
-  drop INDEX vertex_idx_node_id;
-  drop INDEX entity_idx_node_id;
-  drop INDEX entity_node_id_gin_idx;
-  ```
-* Apache AGE的已知问题：发布版本存在以下问题：
-  > 您可能会发现节点/边的属性是空的。
-  > 这是发布版本的已知问题：https://github.com/apache/age/pull/1721
-  >
-  > 您可以从源代码编译AGE来修复它。
-  >
+* Apache AGE的性能不如Neo4j。最求高性能的图数据库请使用Noe4j。
 
 </details>
 
@@ -1229,7 +1231,6 @@ LightRAG 现已与 [RAG-Anything](https://github.com/HKUDS/RAG-Anything) 实现�
                 ),
                 embedding_func=EmbeddingFunc(
                     embedding_dim=3072,
-                    max_token_size=8192,
                     func=lambda texts: openai_embed(
                         texts,
                         model="text-embedding-3-large",

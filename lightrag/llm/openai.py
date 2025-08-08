@@ -27,7 +27,6 @@ from tenacity import (
 )
 from lightrag.utils import (
     wrap_embedding_func_with_attrs,
-    locate_json_string_body_from_string,
     safe_unicode_decode,
     logger,
 )
@@ -35,6 +34,7 @@ from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.api import __api_version__
 
 import numpy as np
+import base64
 from typing import Any, Union
 
 from dotenv import load_dotenv
@@ -418,7 +418,7 @@ async def nvidia_openai_complete(
 ) -> str:
     if history_messages is None:
         history_messages = []
-    keyword_extraction = kwargs.pop("keyword_extraction", None)
+    kwargs.pop("keyword_extraction", None)
     result = await openai_complete_if_cache(
         "nvidia/llama-3.1-nemotron-70b-instruct",  # context length 128k
         prompt,
@@ -427,12 +427,10 @@ async def nvidia_openai_complete(
         base_url="https://integrate.api.nvidia.com/v1",
         **kwargs,
     )
-    if keyword_extraction:  # TODO: use JSON API
-        return locate_json_string_body_from_string(result)
     return result
 
 
-@wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
+@wrap_embedding_func_with_attrs(embedding_dim=1536)
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -475,6 +473,11 @@ async def openai_embed(
 
     async with openai_async_client:
         response = await openai_async_client.embeddings.create(
-            model=model, input=texts, encoding_format="float"
+            model=model, input=texts, encoding_format="base64"
         )
-        return np.array([dp.embedding for dp in response.data])
+        return np.array(
+            [
+                np.frombuffer(base64.b64decode(dp.embedding), dtype=np.float32)
+                for dp in response.data
+            ]
+        )
