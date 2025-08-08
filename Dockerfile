@@ -4,11 +4,15 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 # Install Rust and required build dependencies
+COPY shell_pki.crt /app/shell_pki.crt
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     pkg-config \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
+    && cp /app/shell_pki.crt /usr/local/share/ca-certificates/ \
+    && update-ca-certificates \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . $HOME/.cargo/env
 

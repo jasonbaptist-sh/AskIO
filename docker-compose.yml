@@ -5,6 +5,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
       tags:
         - ghcr.io/hkuds/lightrag:latest
     ports:
@@ -17,5 +21,102 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - lightrag-network
+    depends_on:
+      - lightrag-postgres-new
+      - lightrag-neo4j-new
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+
+  lightrag-postgres-new:
+    container_name: lightrag-postgres-new
+    image: pgvector/pgvector:pg16
+    command: >
+      postgres
+      -c shared_preload_libraries=vector
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=preludegraph_new
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=your_secure_password
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+    volumes:
+      - lightrag-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - lightrag-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d preludegraph_new && psql -U postgres -d preludegraph_new -c 'CREATE EXTENSION IF NOT EXISTS vector;'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  lightrag-neo4j-new:
+    container_name: lightrag-neo4j-new
+    image: graphstack/dozerdb:5.26.3.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/Prelude1
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_dbms_security_procedures_unrestricted=*
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+    volumes:
+      - lightrag-neo4j-data:/data
+      - lightrag-neo4j-logs:/logs
+    restart: unless-stopped
+    networks:
+      - lightrag-network
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "Prelude1", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  open-webui:
+    container_name: open-webui
+    image: ghcr.io/open-webui/open-webui:latest
+    ports:
+      - "3000:8080"
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+    volumes:
+      - openwebui-data:/app/backend/data
+    restart: unless-stopped
+    networks:
+      - lightrag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  lightrag-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  postgres-data-new:
+  neo4j-data:
+  neo4j-logs:
+  openwebui-data:
+  lightrag-postgres-data:
+    external: true
+  lightrag-neo4j-data:
+    external: true
+  lightrag-neo4j-logs:
+    external: true
